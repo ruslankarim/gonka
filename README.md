@@ -66,6 +66,97 @@ make run-tests
 There’s also an option to just run a Docker local chain, without running the tests, use `launch-local-test-chain-w-reset.sh` script for that. The script will spin up a miniature local chain consisting of 3 participants.
 
 To run Go unit tests for `chain` node (`inference-chain`)  and `api` node (`decentralized-api`) use `node-test` and `api-test` make targets.
+
+### Troubleshooting local-build on Windows
+
+During local setup we hit several common issues. If `make local-build` fails, check the points below.
+
+1. **Go toolchain version mismatch**
+   - `decentralized-api/go.mod` requires `go 1.24.2`.
+   - Running with `go1.22.x` or relying on an incompatible default Go may trigger toolchain download/build failures.
+   - Use a parallel toolchain install (without removing your current Go):
+   ```powershell
+   go install golang.org/dl/go1.24.2@latest
+   go1.24.2 download
+   ```
+
+2. **Module resolution with `GOPROXY=direct`**
+   - Some modules may fail to resolve in `direct` mode (e.g. `nhooyr.io/websocket@v1.8.6`).
+   - Set:
+   ```powershell
+   $env:GOPROXY="https://proxy.golang.org,direct"
+   ```
+
+3. **CGO dependency (`blst`) requires a C compiler**
+   - With `CGO_ENABLED=0`, `blst`-related builds can fail.
+   - With `CGO_ENABLED=1` but no compiler in `PATH`, build fails with `gcc not found`.
+   - Install GCC via MSYS2:
+     - Install [MSYS2](https://www.msys2.org/)
+     - In MSYS2 UCRT64 shell run:
+       ```bash
+       pacman -S --needed mingw-w64-ucrt-x86_64-gcc
+       ```
+     - Add `C:\msys64\ucrt64\bin` to `PATH`.
+
+4. **Platform-specific blocker in `wasmvm` on Windows**
+   - Even with Go 1.24.2, `GOPROXY`, and GCC configured, `api-local-build` may fail with:
+     - `undefined: unix.Flock`
+     - `undefined: unix.LOCK_EX`
+     - `undefined: unix.LOCK_NB`
+   - This comes from a unix-only code path used by `github.com/CosmWasm/wasmvm/v2`.
+   - Recommended workaround: run `make local-build` in Linux environment (WSL2/Ubuntu, Linux host, or CI container), not native Windows.
+
+5. **Recommended Windows command (before hitting `wasmvm` blocker)**
+   ```powershell
+   $env:PATH="$HOME\sdk\go1.24.2\bin;C:\msys64\ucrt64\bin;$env:PATH"
+   $env:GOPROXY="https://proxy.golang.org,direct"
+   $env:CGO_ENABLED="1"
+   make local-build
+   ```
+
+### WSL2 quick recipe (reproducible from scratch)
+
+If native Windows build hits the `wasmvm` blocker, use Ubuntu WSL2:
+
+1. Install base tools + Go 1.24.2 in Ubuntu:
+   ```bash
+   sudo apt-get update
+   sudo apt-get install -y make gcc curl tar
+   cd /tmp
+   curl -fL --retry 5 --retry-delay 2 https://go.dev/dl/go1.24.2.linux-amd64.tar.gz -o go1.24.2.linux-amd64.tar.gz
+   sudo rm -rf /usr/local/go
+   sudo tar -C /usr/local -xzf go1.24.2.linux-amd64.tar.gz
+   /usr/local/go/bin/go version
+   ```
+
+2. Build from repo (note `GOFLAGS=-mod=mod` to ignore stale `vendor`):
+   ```bash
+   cd /mnt/c/Users/ruslanka/GolandProjects/gonka
+   export PATH=/usr/local/go/bin:/usr/bin:/bin:$PATH
+   git config --global --add safe.directory /mnt/c/Users/ruslanka/GolandProjects/gonka
+   make local-build
+   ```
+   Note: `GOFLAGS=-mod=mod` is now configured in the top-level `Makefile`, so manual export is not required.
+
+3. If `wasmvm` download from GitHub times out in WSL, pre-download on Windows host:
+   ```powershell
+   curl.exe -L "https://github.com/CosmWasm/wasmvm/releases/download/v2.2.4/libwasmvm_muslc.x86_64.a" -o "C:\Users\ruslanka\GolandProjects\gonka\inference-chain\build\deps\libwasmvm_muslc.x86_64.a"
+   ```
+   Then retry in WSL:
+   ```bash
+   cd /mnt/c/Users/ruslanka/GolandProjects/gonka
+   export PATH=/usr/local/go/bin:/usr/bin:/bin:$PATH
+   make local-build
+   ```
+
+4. If `TLS handshake timeout` occurs for `golang.org/x/mod@v0.30.0`, seed WSL module cache from Windows cache:
+   ```bash
+   mkdir -p /home/$USER/go/pkg/mod/cache/download/golang.org/x/mod/@v
+   cp -f /mnt/c/Users/ruslanka/go/pkg/mod/cache/download/golang.org/x/mod/@v/v0.30.0.* /home/$USER/go/pkg/mod/cache/download/golang.org/x/mod/@v/
+   cd /mnt/c/Users/ruslanka/GolandProjects/gonka
+   export PATH=/usr/local/go/bin:/usr/bin:/bin:$PATH
+   make local-build
+   ```
 ## Architectural overview
 
 Our project is built as a modular, containerized infrastructure with multiple interoperable components.

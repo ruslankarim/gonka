@@ -2,6 +2,13 @@
 
 VERSION ?= $(shell git describe --always)
 TAG_NAME := "release/v$(VERSION)"
+GO_BIN ?= go
+GO_PROXY ?= https://proxy.golang.org,direct
+CGO_ENABLED ?= 1
+GOFLAGS ?= -mod=mod
+export GOPROXY := $(GO_PROXY)
+export CGO_ENABLED := $(CGO_ENABLED)
+export GOFLAGS := $(GOFLAGS)
 
 all: build-docker
 
@@ -85,7 +92,7 @@ test-blockchain: check-docker run-blockchain-tests
 # Local build targets
 api-local-build:
 	@echo "Building decentralized-api locally..."
-	@cd decentralized-api && go build -mod=mod -o ./build/dapi
+	@cd decentralized-api && $(GO_BIN) build -mod=mod -o ./build/dapi
 
 subnetctl-build:
 	@echo "Building subnetctl..."
@@ -97,7 +104,7 @@ node-local-build:
 
 api-test:
 	@echo "Running decentralized-api tests..."
-	@cd decentralized-api && go test ./... -v -short > ../api-test-output.log
+	@cd decentralized-api && $(GO_BIN) test ./... -v -short > ../api-test-output.log
 	@echo "----------------------------------------"
 	@echo "DECENTRALIZED-API TEST SUMMARY:"
 	@PASS_COUNT=$$(grep -c "PASS:" api-test-output.log); \
@@ -117,7 +124,7 @@ api-test:
 
 node-test:
 	@echo "Running inference-chain tests..."
-	@cd inference-chain && go test ./... -v > ../node-test-output.log
+	@cd inference-chain && $(GO_BIN) test ./... -v > ../node-test-output.log
 	@echo "----------------------------------------"
 	@echo "INFERENCE-CHAIN TEST SUMMARY:"
 	@PASS_COUNT=$$(grep -c "PASS:" node-test-output.log); \
